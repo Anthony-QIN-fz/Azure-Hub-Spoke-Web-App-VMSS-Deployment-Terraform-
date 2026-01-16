@@ -1,9 +1,14 @@
 resource "azurerm_linux_virtual_machine_scale_set" "app_vmss" {
-  name                 = "${local.resource_name_prefix}-app_vmss"
-  location             = var.resource_group_location
-  resource_group_name  = azurerm_resource_group.rg1.name
-  instances            = 2
-  health_probe_id      = azurerm_lb_probe.app_lb_probe.id
+  name                = "${local.resource_name_prefix}-app_vmss"
+  location            = var.resource_group_location
+  resource_group_name = azurerm_resource_group.rg1.name
+  instances           = 2
+
+  # VMSS must be after the lb rules because Azure doesn't allow VMSS to use a probe
+  # that is not associated with any lb rule.
+  depends_on      = [azurerm_lb_rule.app_lb_rule]
+  health_probe_id = azurerm_lb_probe.app_lb_probe.id
+
   computer_name_prefix = "appvmss" # otherwise, terraform will automatically choose an invalid name
 
   os_disk {
@@ -50,6 +55,8 @@ resource "azurerm_linux_virtual_machine_scale_set" "app_vmss" {
     max_unhealthy_upgraded_instance_percent = 5
     pause_time_between_batches              = "PT0S"
   }
+
+  custom_data = base64encode(file("${path.module}/${var.scripts_folder_name}/${var.app_vmss_script_name}"))
 
 }
 

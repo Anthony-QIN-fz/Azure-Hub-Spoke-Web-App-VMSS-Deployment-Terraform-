@@ -6,3 +6,5 @@ terraform.tfvars
 *.tfvars
 
 ssh-keys/
+
+graph.svg

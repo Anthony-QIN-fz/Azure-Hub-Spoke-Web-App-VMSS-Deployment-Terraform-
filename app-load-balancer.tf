@@ -18,7 +18,6 @@ resource "azurerm_lb" "app_lb" {
 resource "azurerm_lb_backend_address_pool" "app_lb_backend" {
   name            = "${local.resource_name_prefix}-app_lb_backend"
   loadbalancer_id = azurerm_lb.app_lb.id
-
 }
 
 resource "azurerm_lb_probe" "app_lb_probe" {

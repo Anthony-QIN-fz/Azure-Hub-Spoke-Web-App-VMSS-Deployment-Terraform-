@@ -10,11 +10,18 @@ DEST_PATH="/etc/httpd/conf.d/${file_name}"
 echo "Installing Apache..."
 dnf install -y httpd
 
+echo "Disabling Firewalld..."   # Ensure the health probe will not be blocked by firewalld
+sudo systemctl stop firewalld
+sudo systemctl disable firewalld
+
 echo "Allowing httpd to proxy to other hosts..."
 setsebool -P httpd_can_network_relay on || true
 
 echo "Starting and enabling httpd..."
 systemctl enable --now httpd
+
+echo "<h1>This is Web VMSS</h1>" | sudo tee /var/www/html/index.html
+echo "OK" | sudo tee /var/www/html/healthz
 
 echo "Importing Microsoft GPG key..."
 rpm --import https://packages.microsoft.com/keys/microsoft-2025.asc
@@ -36,7 +43,9 @@ az storage blob download \
     --name $FILE \
     --file $DEST_PATH \
     --auth-mode login  # force the CLI to use Entra login token
+    
 
 echo "Download complete. Restarting httpd..."
 apachectl configtest
 systemctl restart httpd
+systemctl enable httpd

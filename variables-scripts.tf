@@ -7,3 +7,8 @@ variable "web_vmss_script_name" {
   description = "The name of the script which web vmss will execute"
   type        = string
 }
+
+variable "app_vmss_script_name" {
+  description = "The name of the script which app vmss will execute"
+  type        = string
+}

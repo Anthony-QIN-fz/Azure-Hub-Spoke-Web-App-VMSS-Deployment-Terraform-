@@ -5,6 +5,12 @@ resource "azurerm_subnet" "web_subnet" {
   address_prefixes     = ["10.0.1.0/24"]
 }
 
+
+# The reason why we even need an NSG at all instead of having no NSG and opening the
+# subnet to the public internet is that a Standard Load Balancer by design will automatically 
+# block all traffic to the backend if there is no NSG attached (as it deems the path 'insecure'). 
+# So this is basically a rule mandated by Azure
+
 resource "azurerm_network_security_group" "web_subnet_nsg" {
   name                = "${local.resource_name_prefix}-web_subnet_nsg"
   location            = var.resource_group_location
@@ -21,8 +27,10 @@ resource "azurerm_subnet_network_security_group_association" "web_subnet_associa
 }
 
 resource "azurerm_network_security_rule" "web_subnet_nsg_rule" {
-  # We need to allow inbound HTTPS access from the Internet
+  # We need to allow inbound HTTP access from the Internet
   # This is because what our web-vmss sees is not the frontend ip of LB, but the actual IPs from clients
+  # This applies to both PLB and ILB
+
   name                        = "${local.resource_name_prefix}-web_subnet_nsg_rule"
   priority                    = 100
   direction                   = "Inbound"
