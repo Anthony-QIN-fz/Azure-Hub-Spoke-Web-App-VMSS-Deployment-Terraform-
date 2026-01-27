@@ -1,0 +1,147 @@
+name: Terraform CI
+
+on:
+  pull_request:
+    branches: ["main"]
+    # Can be omitted because we only have 'main' right now.
+    # Just in case we may have other branches
+
+    paths: # The files whose changes will trigger the workflow
+      # Our CI workflow only does format + validate + tflint + checkov
+      # There's no point adding files on which the abovementioned actions
+      # cannot be performed. If only those "unrelated" files have changes
+      # in a PR/Push, then running the workflow only wastes CI runs.
+      # That's why we don't add /images and README here
+      - "**/*.tf"
+      - "**/*.tfvars"
+      - "**/*.tflint.hcl"
+      - ".github/workflows/ci.yml"
+      # However, we do need to add the workflow file.
+      # Even if our workflow(YAML) file is the only file that has changes, and we know
+      # that YAML do not support the abovementioned actions, BUT running the CI again
+      # will help us check whether the new workflow itself has any errors.
+
+  push:
+    branches: ["main"]
+    paths:
+      - "**/*.tf"
+      - "**/*.tfvars"
+      - "**/*.tflint.hcl"
+      - ".github/workflows/ci.yml"
+
+  workflow_dispatch: # enables the Run Workflow button for easier checks
+    # Leave it blank here as we only use the default settings
+
+concurrency:
+  # github.ref: which branch this workflow run is happening on
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+  cancel-in-progress: true
+
+permissions:
+  contents: read # repo contents
+  # least privilege: none of format, validate, tflint and checkov needs to write
+
+jobs:
+  terraform-format-validate:
+    name: Terraform Format + Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # 'actions': Github Actions API
+
+      - name: Terraform Setup
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.3 # matches the version on my local computer
+
+      - name: Terraform Format (check-only)
+        run: terraform fmt -check -recursive
+        # -check would fail the run and exit if there's any formatting issue.
+        # Without it, the runner machine would format the code without telling us.
+        # This's useless because we already set the permissions of github_token to
+        # read-only, so the reformatted code will not be pushed to our repo, and will
+        # simply vanish after the run finishes
+
+      - name: Terraform Init (no backend)
+        run: terraform init -backend=false -input=false
+        # -backend=false: Since we're NOT gonna plan/apply, there's no need to
+        # keep track of the state, hence no need to configure a backend.
+        # -input=false: In a non-interactive environment, we don't want any prompts asking for inputs
+        # By setting input to false, the run will fail immediately once there's any prompt
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+        # -no-color: Some log viewers show the color codes as weird characters,
+        # so turning colors off keeps logs cleaner and more predictable
+
+  tflint:
+    name: TFLint
+    runs-on: ubuntu-latest
+    needs: terraform-format-validate # dependency
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # GITHUB_TOKEN is a temporary password that GitHub automatically creates for every workflow run.
+      # Our workflow can use it to talk to GitHub’s API.
+
+      # When we run tflint --init, TFLint may call the GitHub API to fetch plugin release metadata,
+      # and unauthenticated calls can hit low rate limits.
+      # Setting GITHUB_TOKEN can authenticate those requests and avoid rate limiting.
+      # Though we did not use token explicitly in the code below,
+      # TFLint will look for a token automatically in an environment variable named GITHUB_TOKEN,
+      # and use it behind the scenes when it calls the GitHub API
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: TFLint Setup
+        uses: terraform-linters/setup-tflint@v6
+        with:
+          cache: true # cache the plugins so that they don't have to re-downloaded every run
+
+      - name: TFLint Init
+        run: tflint --init # download the plugins specified in .tflint.hcl
+
+      - name: TFLint Run
+        run: tflint --recursive --format=compact --minimum-failure-severity=error
+        # --format=compact: show TFLint findings as inline annotations(better readability than pure logs)
+        # --minimum-failure-severity=error: do not let warnings fail our workflow, but still print them out
+
+  checkov:
+    name: Checkov
+    runs-on: ubuntu-latest
+    needs: terraform-format-validate
+
+    # overrides the global token permissions just for this job
+    permissions:
+      contents: read
+      security-events: write # allows uploading SARIF results to Github Security tab
+      # We don't need "actions: read" as all of my repos so far are public
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkov Run
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: . # scans everything starting from repo root, including every subfolder
+          framework: terraform # only scans Terraform files (though we can include other types of files if we want)
+
+          # We should not add a space in-between as these are comma-separated lists.
+          # If we add a space, then the second item may be interpreted with a leading space
+          output_format: cli,sarif
+          output_file_path: console,results.sarif
+
+          # Set our security scanning to 'Report-only'
+          # meaning that even if security issues are found, our workflow will not be failed, and SARIF uploads will still be conducted
+          # (this is just for my personal projects. For a real production environment, we should set it to false)
+          soft_fail: true
+
+      - name: Checkov Upload
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
