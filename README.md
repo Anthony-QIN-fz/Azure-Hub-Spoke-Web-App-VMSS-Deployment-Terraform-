@@ -249,6 +249,13 @@ Above is a **hub–spoke** Azure network design: **VNet-Hub** hosts the public e
 
 **All tests passed successfully✅**
 
+---
+## Updates
+
+* **(Jan 27, 2026) GitHub Actions added:**
+
+  terraform fmt + validate, TFLint, and Checkov run on every PR and push to main
+
 
 
 
